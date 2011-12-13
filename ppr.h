@@ -1,5 +1,6 @@
+/* !!! must have patched kernel with 0x333 syscall */
 
-inline void set_priority(unsigned long long x)
+inline void set_ppr(unsigned long long x)
 {
 
     __asm__ volatile ("li 0, 0x333\n\t" "ld 3, %0 \n\t" "sc \n\t"::
