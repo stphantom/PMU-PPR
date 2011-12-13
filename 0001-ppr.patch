@@ -1,0 +1,249 @@
+From ce3c86ba2dac653c08d2319c5dfec8ea45087e43 Mon Sep 17 00:00:00 2001
+From: Zhengyu He <zhe8@power7.(none)>
+Date: Tue, 11 Oct 2011 10:38:29 -0400
+Subject: [PATCH] ppr
+
+---
+ arch/powerpc/include/asm/ppc_asm.h   |   10 +++++++++-
+ arch/powerpc/include/asm/processor.h |   10 ++++++++++
+ arch/powerpc/include/asm/reg.h       |    1 +
+ arch/powerpc/kernel/asm-offsets.c    |    2 +-
+ arch/powerpc/kernel/entry_64.S       |   14 +++++++++++++-
+ arch/powerpc/kernel/exceptions-64s.S |   32 ++++++++++++++++++++++++++++++++
+ arch/powerpc/kernel/irq.c            |    2 +-
+ arch/powerpc/kernel/time.c           |    2 ++
+ kernel/fork.c                        |    3 +++
+ kernel/sched.c                       |    1 +
+ 10 files changed, 73 insertions(+), 4 deletions(-)
+
+diff --git a/arch/powerpc/include/asm/ppc_asm.h b/arch/powerpc/include/asm/ppc_asm.h
+index 368f72f..ca4016d 100644
+--- a/arch/powerpc/include/asm/ppc_asm.h
++++ b/arch/powerpc/include/asm/ppc_asm.h
+@@ -168,6 +168,14 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
+ #define REST_32EVRS(n,s,b,o)	REST_16EVRS(n,s,b,o); REST_16EVRS(n+16,s,b,o)
+ 
+ /* Macros to adjust thread priority for hardware multithreading */
++#define HMT_VERY_LOW	
++#define HMT_LOW		
++#define HMT_MEDIUM_LOW  
++#define HMT_MEDIUM	
++#define HMT_MEDIUM_HIGH 
++#define HMT_HIGH	
++#define HMT_EXTRA_HIGH	
++/*
+ #define HMT_VERY_LOW	or	31,31,31	# very low priority
+ #define HMT_LOW		or	1,1,1
+ #define HMT_MEDIUM_LOW  or	6,6,6		# medium low priority
+@@ -175,7 +183,7 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
+ #define HMT_MEDIUM_HIGH or	5,5,5		# medium high priority
+ #define HMT_HIGH	or	3,3,3
+ #define HMT_EXTRA_HIGH	or	7,7,7		# power7 only
+-
++*/
+ #ifdef __KERNEL__
+ #ifdef CONFIG_PPC64
+ 
+diff --git a/arch/powerpc/include/asm/processor.h b/arch/powerpc/include/asm/processor.h
+index eb11a44..c1d650a 100644
+--- a/arch/powerpc/include/asm/processor.h
++++ b/arch/powerpc/include/asm/processor.h
+@@ -61,12 +61,21 @@ extern int _prep_type;
+ #define current_text_addr() ({ __label__ _l; _l: &&_l;})
+ 
+ /* Macros for adjusting thread priority (hardware multi-threading) */
++/*
+ #define HMT_very_low()   asm volatile("or 31,31,31   # very low priority")
+ #define HMT_low()	 asm volatile("or 1,1,1	     # low priority")
+ #define HMT_medium_low() asm volatile("or 6,6,6      # medium low priority")
+ #define HMT_medium()	 asm volatile("or 2,2,2	     # medium priority")
+ #define HMT_medium_high() asm volatile("or 5,5,5      # medium high priority")
+ #define HMT_high()	 asm volatile("or 3,3,3	     # high priority")
++*/
++
++#define HMT_very_low()   
++#define HMT_low()	 
++#define HMT_medium_low() 
++#define HMT_medium()	 
++#define HMT_medium_high() 
++#define HMT_high()	 
+ 
+ #ifdef __KERNEL__
+ 
+@@ -247,6 +256,7 @@ struct thread_struct {
+ 	unsigned long	dscr;
+ 	int		dscr_inherit;
+ #endif
++	unsigned long	ppr;           /* PPR register added by HZY */
+ };
+ 
+ #define ARCH_MIN_TASKALIGN 16
+diff --git a/arch/powerpc/include/asm/reg.h b/arch/powerpc/include/asm/reg.h
+index 559da19..3433787 100644
+--- a/arch/powerpc/include/asm/reg.h
++++ b/arch/powerpc/include/asm/reg.h
+@@ -493,6 +493,7 @@
+ #define SPRN_SPRG7	0x117	/* Special Purpose Register General 7 */
+ #define SPRN_SRR0	0x01A	/* Save/Restore Register 0 */
+ #define SPRN_SRR1	0x01B	/* Save/Restore Register 1 */
++#define SPRN_PPR    0x380   /* PPR register by Zhengyu He */ 
+ #define   SRR1_WAKEMASK		0x00380000 /* reason for wakeup */
+ #define   SRR1_WAKESYSERR	0x00300000 /* System error */
+ #define   SRR1_WAKEEE		0x00200000 /* External interrupt */
+diff --git a/arch/powerpc/kernel/asm-offsets.c b/arch/powerpc/kernel/asm-offsets.c
+index 5f078bc..1cc1943 100644
+--- a/arch/powerpc/kernel/asm-offsets.c
++++ b/arch/powerpc/kernel/asm-offsets.c
+@@ -115,7 +115,7 @@ int main(void)
+ #ifdef CONFIG_KVM_BOOK3S_32_HANDLER
+ 	DEFINE(THREAD_KVM_SVCPU, offsetof(struct thread_struct, kvm_shadow_vcpu));
+ #endif
+-
++	DEFINE(THREAD_PRIORITY, offsetof(struct thread_struct, ppr));
+ 	DEFINE(TI_FLAGS, offsetof(struct thread_info, flags));
+ 	DEFINE(TI_LOCAL_FLAGS, offsetof(struct thread_info, local_flags));
+ 	DEFINE(TI_PREEMPT, offsetof(struct thread_info, preempt_count));
+diff --git a/arch/powerpc/kernel/entry_64.S b/arch/powerpc/kernel/entry_64.S
+index d834425..477720b 100644
+--- a/arch/powerpc/kernel/entry_64.S
++++ b/arch/powerpc/kernel/entry_64.S
+@@ -182,7 +182,12 @@ system_call:			/* label this so stack traces look sane */
+ 	slwi	r0,r0,4
+ 	ldx	r10,r11,r0	/* Fetch system call handler [ptr] */
+ 	mtctr   r10
+-	bctrl			/* Call handler */
++	cmpdi r0, 0x143
++	bne+    16f
++	mfmsr   r4
++	mr r5, r1
++	ld r6, _NIP(r1)
++16:	bctrl			/* Call handler */
+ 
+ syscall_exit:
+ 	std	r3,RESULT(r1)
+@@ -237,6 +242,13 @@ END_FTR_SECTION_IFCLR(CPU_FTR_STCX_CHECKS_ADDRESS)
+ 	mtmsrd	r11,1			/* clear MSR.RI */
+ #endif /* CONFIG_PPC_BOOK3S */
+ 
++	mfspr   r13,SPRN_SPRG_PACA
++	ld r2, PACACURRENT(r13)
++	addi r2, r2, THREAD
++	ld r2, THREAD_PRIORITY(r2)
++	mtspr 896, r2
++
++
+ 	beq-	1f
+ 	ACCOUNT_CPU_USER_EXIT(r11, r12)
+ 	ld	r13,GPR13(r1)	/* only restore r13 if returning to usermode */
+diff --git a/arch/powerpc/kernel/exceptions-64s.S b/arch/powerpc/kernel/exceptions-64s.S
+index 41b02c7..fa16bdb 100644
+--- a/arch/powerpc/kernel/exceptions-64s.S
++++ b/arch/powerpc/kernel/exceptions-64s.S
+@@ -196,6 +196,9 @@ hardware_interrupt_hv:
+ 	. = 0xc00
+ 	.globl	system_call_pSeries
+ system_call_pSeries:
++	cmpdi   r0, 0x333
++	beq-    2f
++
+ 	HMT_MEDIUM
+ #ifdef CONFIG_KVM_BOOK3S_64_HANDLER
+ 	SET_SCRATCH0(r13)
+@@ -231,6 +234,18 @@ END_FTR_SECTION_IFSET(CPU_FTR_REAL_LE)
+ 	rfid		/* return to userspace */
+ 	b	.
+ 
++2:	mr  r9,r13
++	mfspr   r13,SPRN_SPRG_PACA
++	mfspr   r11,SPRN_SRR0
++	ld  r12,PACAKBASE(r13)
++	ld  r10,PACAKMSR(r13)
++	LOAD_HANDLER(r12, system_call_324)
++	mtspr   SPRN_SRR0,r12
++	mfspr   r12,SPRN_SRR1
++	mtspr   SPRN_SRR1,r10
++	rfid
++	b   .   /* prevent speculative execution */
++	
+ 	STD_EXCEPTION_PSERIES(0xd00, 0xd00, single_step)
+ 	KVM_HANDLER_PR(PACA_EXGEN, EXC_STD, 0xd00)
+ 
+@@ -492,6 +507,23 @@ machine_check_common:
+ system_call_entry:
+ 	b	system_call_common
+ 
++    .align  7
++system_call_324:                                                                                       
++	mr r6, r1
++	ld r1,PACAKSAVE(r13)
++	ld r4, PACACURRENT(r13)
++	addi r5, r4, THREAD
++	rldicr r3,r3,50,13
++	std r3, THREAD_PRIORITY(r5)
++	mtspr 896, r3
++	mr r13, r9/* restore previous status */
++	mr r1, r6/* restore previous status */
++	mtspr   SPRN_SRR0,r11 /* restore previous status */
++	mtspr   SPRN_SRR1,r12/* restore previous status */
++	rfid
++	b   .
++
++
+ /*
+  * Here we have detected that the kernel stack pointer is bad.
+  * R9 contains the saved CR, r13 points to the paca,
+diff --git a/arch/powerpc/kernel/irq.c b/arch/powerpc/kernel/irq.c
+index d281fb6..af7288f 100644
+--- a/arch/powerpc/kernel/irq.c
++++ b/arch/powerpc/kernel/irq.c
+@@ -372,7 +372,7 @@ void do_IRQ(struct pt_regs *regs)
+ 		timer_interrupt(regs);
+ 	}
+ #endif
+-
++	mtspr(SPRN_PPR, (current->thread).ppr);
+ 	trace_irq_exit(regs);
+ }
+ 
+diff --git a/arch/powerpc/kernel/time.c b/arch/powerpc/kernel/time.c
+index 03b29a6..9fd80b0 100644
+--- a/arch/powerpc/kernel/time.c
++++ b/arch/powerpc/kernel/time.c
+@@ -640,6 +640,8 @@ void timer_interrupt(struct pt_regs * regs)
+ 	irq_exit();
+ 	set_irq_regs(old_regs);
+ 
++	mtspr(SPRN_PPR, (current->thread).ppr);
++
+ 	trace_timer_interrupt_exit(regs);
+ }
+ 
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 8e6b6f4..cb6220c 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -1380,6 +1380,9 @@ static struct task_struct *copy_process(unsigned long clone_flags,
+ 	if (clone_flags & CLONE_THREAD)
+ 		threadgroup_fork_read_unlock(current);
+ 	perf_event_fork(p);
++
++	(p->thread).ppr = 0x10000000000000;
++
+ 	return p;
+ 
+ bad_fork_free_pid:
+diff --git a/kernel/sched.c b/kernel/sched.c
+index ec5f472..879033b 100644
+--- a/kernel/sched.c
++++ b/kernel/sched.c
+@@ -4353,6 +4353,7 @@ need_resched:
+ 	} else
+ 		raw_spin_unlock_irq(&rq->lock);
+ 
++	mtspr(SPRN_PPR, (current->thread).ppr);
+ 	post_schedule(rq);
+ 
+ 	preempt_enable_no_resched();
+-- 
+1.7.2.3
+
