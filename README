@@ -1,4 +1,4 @@
 Proactive SMT-aware scheduler (for Power 5/6/7)
 
 1, patch your kernel with 0001-ppr.patch
-2, include pmu_sched.h in your source file.
+2, make && cd test && make
