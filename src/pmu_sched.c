@@ -8,10 +8,20 @@
 #include <time.h>
 #include <pthread.h>
 
+#include "perf_event.h"
 #include "pmu_sched.h"
 #if defined __powerpc__
 #include "ppr.h"
 #endif
+
+
+#define SAMPLE_DURATION 900000	/* in microseconds */
+#define NUM_PMU_COUNTERS 2
+__u64 PMU_COUNETERS_LIST[2] =
+    { PERF_COUNT_HW_CPU_CYCLES, PERF_COUNT_HW_INSTRUCTIONS };
+#define MAX_PPR_V 6
+#define MIN_PPR_V 2
+#define DEFAULT_PPR_V 4
 
 
 /* don't modify from here */
@@ -139,6 +149,8 @@ void pmu_sched_sample_stop(int signum)
 	}
     }
 
+
+
     /* adjust: increase priority or switch to another cpu */
     need_adjust = pmu_sched_evaluate();
     if (need_adjust) {
@@ -163,7 +175,7 @@ void pmu_sched_sample()
 	pc->enabled = 1;
     }
     for (i = 0; i < NUM_PMU_COUNTERS; i++) {
-	//ioctl(pc->pmu_fd[i], PERF_EVENT_IOC_RESET, 0);
+	ioctl(pc->pmu_fd[i], PERF_EVENT_IOC_RESET, 0);
     }
     ualarm(SAMPLE_DURATION, 0);
 }
@@ -181,7 +193,6 @@ void pmu_sched_init()
 	fprintf(stderr, "Error creating thread local\n");
 	exit(1);
     }
-    printf("key created\n");
 #endif				/* ! TLS */
 }
 
@@ -206,7 +217,7 @@ void pmu_sched_init_thread()
 
 	pc->pmu_fd[i] = perf_event_open(&pe, 0, -1, last_fd, 0);
 	if (pc->pmu_fd[i] < 0) {
-	    fprintf(stderr, "Error opening %llu\n", pe.config);
+	    fprintf(stderr, "Error opening %llu\n", (long long unsigned)pe.config);
 	}
 	last_fd = pc->pmu_fd[i];
 

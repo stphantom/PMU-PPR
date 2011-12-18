@@ -22,7 +22,7 @@ LDFLAGS += -L$(OUTPUTDIR) -l$(TARGET) -lpthread
 
 TARGETLIB = $(OUTPUTDIR)/lib$(TARGET).a
 
-# GCC thread-local storage (enable if supported on target architecture)
+#GCC thread-local storage (enable if supported on target architecture)
 ifdef NOTLS
   DEFINES += -UTLS
 else
@@ -36,7 +36,7 @@ MODULES := $(patsubst %.c,%.o,$(wildcard $(SRCDIR)/*.c))
 all:    $(TARGETLIB)
 
 %.o:    %.c
-	$(CC) $(CFLAGS)  -c -o $@ $<
+	$(CC) $(CFLAGS) $(DEFINES)  -c -o $@ $<
 
 $(TARGETLIB):     $(MODULES)
 	$(AR) cru $@ $^
@@ -47,4 +47,4 @@ test:   $(TARGETLIB)
 
 clean:
 	rm -f $(TARGETLIB) $(SRCDIR)/*.o
-	TARGET=clean $(MAKE) -C test
+	make clean -C test
