@@ -15,27 +15,37 @@
 #endif
 
 
-#define SAMPLE_DURATION 900000	/* in microseconds */
+#define TARGET_LOW 2.0
+#define TARGET_HIGH 2.0
+#define SAMPLE_DURATION 200000	/* in microseconds */
+#define SAMPLE_INTERVAL 500000	/* in microseconds */
+#define PMU_PERF_TYPE PERF_TYPE_HARDWARE
 #define NUM_PMU_COUNTERS 2
-__u64 PMU_COUNETERS_LIST[2] =
-    { PERF_COUNT_HW_CPU_CYCLES, PERF_COUNT_HW_INSTRUCTIONS };
+__u64 PMU_COUNETERS_LIST[NUM_PMU_COUNTERS] = {
+    PERF_COUNT_HW_CPU_CYCLES,
+    PERF_COUNT_HW_INSTRUCTIONS
+};
+
 #define MAX_PPR_V 6
-#define MIN_PPR_V 2
+#define MIN_PPR_V 1
 #define DEFAULT_PPR_V 4
 
 
 /* don't modify from here */
 
+
 struct pmu_count {
-    long long pmu_fd_count[NUM_PMU_COUNTERS];
+    __u64 pmu_fd_count[NUM_PMU_COUNTERS];
     struct pmu_count *prev_pmu_count;
 };
 
 struct pmu_ctx {
     int enabled;
+    int sample_interval;
     int pmu_fd[NUM_PMU_COUNTERS];
     struct pmu_count *curr_pmu_count;
 };
+
 #ifndef __NR_perf_event_open
 #if defined(__i386__)
 #define __NR_perf_event_open    336
@@ -47,6 +57,7 @@ struct pmu_ctx {
 #define __NR_perf_event_open    364
 #endif
 #endif
+
 int perf_event_open(struct perf_event_attr *hw_event_uptr,
 		    pid_t pid, int cpu, int group_fd, unsigned long flags)
 {
@@ -83,29 +94,17 @@ void pmu_sched_exit()
 
 
 
-int pmu_sched_evaluate()
+float pmu_sched_get_perf_value()
 {
     struct pmu_ctx *pc = get_pmu_ctx();
-    double curr_IPC, prev_IPC;
-    struct pmu_count *count;
-    count = pc->curr_pmu_count;
-    curr_IPC = (double) count->pmu_fd_count[2] / count->pmu_fd_count[1];
-    printf("curr_IPC: %lf\n", curr_IPC);
-    printf("cy: %lld\n", count->pmu_fd_count[1]);
-    printf("in: %lld\n", count->pmu_fd_count[2]);
-
-    count = count->prev_pmu_count;
+    double curr_IPC;
+    struct pmu_count *count = pc->curr_pmu_count;
     if (count != NULL)
-	prev_IPC =
-	    (double) count->pmu_fd_count[2] / count->pmu_fd_count[1];
+        curr_IPC = (double) count->pmu_fd_count[1] / count->pmu_fd_count[0];
     else
-	prev_IPC = 0.0;
+	return 0.0;
 
-    if (curr_IPC < prev_IPC * 0.85)
-	return 1;
-    else
-	return 0;
-
+    return curr_IPC;
 }
 
 
@@ -130,8 +129,9 @@ void pmu_sched_sample_stop(int signum)
 
     struct pmu_ctx *pc = get_pmu_ctx();
     int read_result;
-    int need_adjust;
-    int curr_ppr;
+    int need_adjust = 0;
+    int curr_ppr, target_ppr;
+    float target;
     int i;
 
     struct pmu_count *curr_count;
@@ -140,10 +140,9 @@ void pmu_sched_sample_stop(int signum)
     pc->curr_pmu_count = curr_count;
 
     for (i = 0; i < NUM_PMU_COUNTERS; i++) {
-	ioctl(pc->pmu_fd[i], PERF_EVENT_IOC_REFRESH, 0);
 	read_result =
 	    read(pc->pmu_fd[i], &(curr_count->pmu_fd_count[i]),
-		 sizeof(long long));
+		 sizeof(__u64));
 	if (read_result < 0) {
 	    printf("PMU read error\n");
 	}
@@ -152,18 +151,37 @@ void pmu_sched_sample_stop(int signum)
 
 
     /* adjust: increase priority or switch to another cpu */
-    need_adjust = pmu_sched_evaluate();
-    if (need_adjust) {
-	curr_ppr = get_ppr();
-	if (curr_ppr < MAX_PPR_V)
-	    set_ppr(curr_ppr + 1);
-	else
-	    pmu_sched_migrate_thread();
-    }
+    target = pmu_sched_get_perf_value();
 
+    if (target < TARGET_LOW)
+	need_adjust = 1;
+    else if (target > TARGET_HIGH)
+	need_adjust = -1;
+
+    if (need_adjust != 0) {
+	curr_ppr = get_ppr();
+	target_ppr = curr_ppr + need_adjust;
+	if (target_ppr <= MAX_PPR_V && target_ppr >= MIN_PPR_V) {
+	    pc->sample_interval = SAMPLE_INTERVAL;
+	    set_ppr(target_ppr);
+	} else {
+	    pmu_sched_migrate_thread();
+	}
+    } else
+	pc->sample_interval += SAMPLE_INTERVAL;
+
+    /* Install timer_handler as the signal handler for SIGALRM.  */
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = &pmu_sched_sample_start;
+    sigaction(SIGALRM, &sa, NULL);
+    if (pc->sample_interval >= 1000000)
+	alarm(pc->sample_interval / 1000000);
+    else
+	ualarm(pc->sample_interval, 0);
 }
 
-void pmu_sched_sample()
+void pmu_sched_sample_start()
 {
 
     struct pmu_ctx *pc = get_pmu_ctx();
@@ -177,7 +195,14 @@ void pmu_sched_sample()
     for (i = 0; i < NUM_PMU_COUNTERS; i++) {
 	ioctl(pc->pmu_fd[i], PERF_EVENT_IOC_RESET, 0);
     }
+    /* Install timer_handler as the signal handler for SIGALRM.  */
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = &pmu_sched_sample_stop;
+    sigaction(SIGALRM, &sa, NULL);
     ualarm(SAMPLE_DURATION, 0);
+
+
 }
 
 void pmu_sched_init()
@@ -196,40 +221,50 @@ void pmu_sched_init()
 #endif				/* ! TLS */
 }
 
-void pmu_sched_init_thread()
+void pmu_sched_init_thread(int thread_type)
 {
+    if (thread_type == MAIN_THREAD) {
+	struct pmu_ctx *pc =
+	    (struct pmu_ctx *) malloc(sizeof(struct pmu_ctx));
+	struct perf_event_attr pe;
+	int i, group_fd = -1;
 
-    struct pmu_ctx *pc = (struct pmu_ctx *) malloc(sizeof(struct pmu_ctx));
-    struct perf_event_attr pe;
-    int i, last_fd = -1;
+	pc->enabled = 0;
+	pc->sample_interval = SAMPLE_INTERVAL;
 
-    pc->enabled = 0;
-
-    for (i = 0; i < NUM_PMU_COUNTERS; i++) {
-	memset(&pe, 0, sizeof(struct perf_event_attr));
-	pe.type = PERF_TYPE_HARDWARE;
-	pe.size = sizeof(struct perf_event_attr);
-	pe.config = PMU_COUNETERS_LIST[i];
-	pe.disabled = 1;
-	pe.exclude_kernel = 1;
-	pe.exclude_hv = 1;
+	for (i = 0; i < NUM_PMU_COUNTERS; i++) {
+	    memset(&pe, 0, sizeof(struct perf_event_attr));
+	    pe.type = PMU_PERF_TYPE;
+	    pe.size = sizeof(struct perf_event_attr);
+	    pe.config = PMU_COUNETERS_LIST[i];
+	    pe.disabled = 1;
+	    pe.exclude_kernel = 1;
+	    pe.exclude_hv = 1;
 
 
-	pc->pmu_fd[i] = perf_event_open(&pe, 0, -1, last_fd, 0);
-	if (pc->pmu_fd[i] < 0) {
-	    fprintf(stderr, "Error opening %llu\n", (long long unsigned)pe.config);
+	    pc->pmu_fd[i] = perf_event_open(&pe, 0, -1, group_fd, 0);
+	    if (pc->pmu_fd[i] < 0) {
+		fprintf(stderr, "Error opening %llu\n",
+			(long long unsigned) pe.config);
+	    }
+
+	    if (group_fd == -1)
+		group_fd = pc->pmu_fd[i];
+
 	}
-	last_fd = pc->pmu_fd[i];
-
-    }
-    pc->curr_pmu_count = NULL;
+	pc->curr_pmu_count = NULL;
 
 
 #ifdef TLS
-    thread_pc = pc;
+	thread_pc = pc;
 #else				/* ! TLS */
-    pthread_setspecific(thread_pc, pc);
+	pthread_setspecific(thread_pc, pc);
 #endif				/* ! TLS */
-
+    } else {
+	sigset_t timer_mask;
+	sigemptyset(&timer_mask);
+	sigaddset(&timer_mask, SIGALRM);
+	pthread_sigmask(SIG_BLOCK, &timer_mask, NULL);
+    }
 
 }

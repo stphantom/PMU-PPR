@@ -115,7 +115,9 @@ int main(int argc, char **argv) {
    }
 
 
-   pe.config=PERF_COUNT_HW_INSTRUCTIONS;
+   pe.type=PERF_TYPE_HW_CACHE;
+   pe.config=PERF_COUNT_HW_CACHE_L1D;
+   //pe.config=PERF_COUNT_HW_INSTRUCTIONS;
    fd_insts=perf_event_open(&pe,0,-1,fd_cycles,0);
    if (fd_cycles<0) {
       fprintf(stderr,"Error opening event %llx\n",pe.config);
@@ -123,10 +125,10 @@ int main(int argc, char **argv) {
 
       ioctl(fd_cycles, PERF_EVENT_IOC_ENABLE,0);
       ioctl(fd_insts, PERF_EVENT_IOC_ENABLE,0);
-      ioctl(fd_cycles, PERF_EVENT_IOC_RESET, 0);
-      ioctl(fd_insts, PERF_EVENT_IOC_RESET, 0);
    for(i=0;i<SLEEP_RUNS;i++) {
 
+      ioctl(fd_cycles, PERF_EVENT_IOC_RESET, 0);
+      ioctl(fd_insts, PERF_EVENT_IOC_RESET, 0);
      
       set_ppr(ppr);
       //sleep(1);

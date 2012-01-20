@@ -2,10 +2,7 @@
 
 #define NUM_RUNS 3
 
-#define MATRIX_SIZE 512
-static double a[MATRIX_SIZE][MATRIX_SIZE];
-static double b[MATRIX_SIZE][MATRIX_SIZE];
-static double c[MATRIX_SIZE][MATRIX_SIZE];
+#define MATRIX_SIZE 128
 
 long long naive_matrix_multiply_estimated_flops(int quiet) {
 
@@ -34,6 +31,10 @@ void naive_matrix_multiply(int quiet) {
 
   double s;
   int i,j,k;
+
+double a[MATRIX_SIZE][MATRIX_SIZE];
+double b[MATRIX_SIZE][MATRIX_SIZE];
+double c[MATRIX_SIZE][MATRIX_SIZE];
 
   for(i=0;i<MATRIX_SIZE;i++) {
     for(j=0;j<MATRIX_SIZE;j++) {

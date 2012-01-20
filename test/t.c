@@ -23,7 +23,7 @@
 #include "matrix_multiply.h"
 
 
-#define NUM_THREADS 4
+#define NUM_THREADS 1
 
 
 
@@ -52,41 +52,40 @@ void *bar(void *threadid)
     int tid;
     double t1, t2;
 
-    pmu_sched_init_thread();
     tid = (long) threadid;
     int i;
 
     if (tid == 0) {
+	pmu_sched_init_thread(MAIN_THREAD);
+	pmu_sched_sample_start();
 
+	    t1 = usec();
 	for (pri = 0; pri <= 7; pri++) {
 
 	    n = 0;
-	    t1 = usec();
-	    for (i = 0; i < 5; i++) {
-		pmu_sched_sample();
+	    for (i = 0; i < 20; i++) {
 		WORK;
 	    }
 
-	    t2 = usec();
-	    printf("pri = %lld ", get_ppr(), pri);
-	    printf("\t\t | bk_pri = %lld , n = %ld\n", bk_pri, n);
-	    printf("time: \t\t%8.2f usec \n", t2 - t1);
-	    printf("------------------------\n");
 	}
+	    t2 = usec();
 
+	printf("[%ld] pri = %lld ", tid, get_ppr());
+	printf("time: \t\t%8.2f usec \n", t2 - t1);
+	printf("------------------------\n");
 	flag = 0;
 
     } else {
 
+	pmu_sched_init_thread(SECONDARY_THREAD);
 	set_ppr(bk_pri);
-	//t1 = usec();
+	printf("bk_ppr %d\n", bk_pri);
 	while (flag) {
 	    WORK;
-	    sleep(tid);
 	    n++;
 	}
-	//t2 = usec();
-	//printf("%8.2f background. %d \n", t2-t1, a);
+	printf("[%ld] bkpri = %lld \n", tid, get_ppr());
+	printf("------------------------\n");
 
     }
 }
@@ -111,8 +110,7 @@ int main(int argc, char **argv)
 	CPU_ZERO(&cpuset);
 	CPU_SET(i, &cpuset);
 	pthread_attr_init(&(attr[i]));
-	pthread_attr_setaffinity_np(&(attr[i]), sizeof(cpu_set_t),
-				    &cpuset);
+	pthread_attr_setaffinity_np(&(attr[i]), sizeof(cpu_set_t), &cpuset);
     }
 
     for (i = 0; i < NUM_THREADS; i++) {
