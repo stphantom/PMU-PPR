@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <sched.h>
 #include <unistd.h>
 #include <signal.h>
 #include <string.h>
@@ -13,6 +14,9 @@
 #if defined __powerpc__
 #include "ppr.h"
 #endif
+
+#define _GNU_SOURCE         /* See feature_test_macros(7) */
+#include <sched.h>
 
 
 #define TARGET_LOW 2.0
@@ -29,9 +33,11 @@ __u64 PMU_COUNETERS_LIST[NUM_PMU_COUNTERS] = {
 #define MAX_PPR_V 6
 #define MIN_PPR_V 1
 #define DEFAULT_PPR_V 4
-
+#define THREAD_SIBLINGS_LIST "/sys/devices/system/cpu%d/topology/thread_siblings"
 
 /* don't modify from here */
+
+
 
 
 struct pmu_count {
@@ -108,10 +114,33 @@ float pmu_sched_get_perf_value()
 }
 
 
+
+
 void pmu_sched_migrate_thread()
 {
 
     /* TODO: pthread_setaffinity_np */
+   printf("from cpu %d\n", sched_getcpu());
+   int curr_cpu = sched_getcpu();
+   char path[128];
+   FILE *fp;
+   unsigned int m1,m2,m3,m4;
+   cpu_set_t cpuset;
+
+   sprintf(path, THREAD_SIBLINGS_LIST, curr_cpu);
+   fp = fopen(path, "r");
+   if (fp == NULL) {
+	fprintf(stderr, "can't access %s\n", path);
+        return;
+   }
+
+   fscanf(fp, "%x,%x,%x,%x", &m1,&m2,&m3,&m4);
+
+   printf("sibling %x\n", m4);
+sched_getaffinity(0, sizeof(cpu_set_t), &cpuset);
+   printf("mask %x\n", cpuset);
+
+   
 
 }
 
@@ -152,6 +181,7 @@ void pmu_sched_sample_stop(int signum)
 
     /* adjust: increase priority or switch to another cpu */
     target = pmu_sched_get_perf_value();
+
 
     if (target < TARGET_LOW)
 	need_adjust = 1;

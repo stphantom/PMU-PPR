@@ -2,7 +2,7 @@
 
 #define NUM_RUNS 3
 
-#define MATRIX_SIZE 128
+#define MATRIX_SIZE 512
 
 long long naive_matrix_multiply_estimated_flops(int quiet) {
 

@@ -37,6 +37,19 @@ int perf_event_open(struct perf_event_attr *hw_event_uptr,
 }
 
 
+
+inline int get_pir(){
+    unsigned long long  ret;
+    __asm volatile (
+        "mfspr 9, 896\n\t"
+        "std 9, %0\n\t"
+        :"=m" (ret)
+        :
+        :"9"
+    );
+
+    return (int)((ret>>50) & 0x7);
+}
 inline int get_ppr(){
     unsigned long long  ret;
     __asm volatile (
