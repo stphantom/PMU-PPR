@@ -1,3 +1,2 @@
-1, find a POWER5/6/7 machine
-2, patch your kernel with 0001-ppr.patch
-3, make && cd test && make
+v0.03    user-space implementation
+v0.04    kernel-space implementation
