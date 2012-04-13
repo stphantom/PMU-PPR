@@ -1,5 +1,5 @@
 
-BINS = t test test_sc
+BINS = test 
 CFLAGS+= -m64 -pthread -I../src -g
 LDFLAGS+= -m64 -lrt -lpthread -lpmu_sched -L../lib -g 
 
